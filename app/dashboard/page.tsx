@@ -26,7 +26,7 @@ export default function Home() {
   const [demoOutput, setDemoOutput] = useState(false);
   const [error, setError] = useState("");
   const [improving, setImproving] = useState(false);
-  const [runtimeMode, setRuntimeMode] = useState<"local-cli" | "public-demo">("public-demo");
+  const [runtimeMode, setRuntimeMode] = useState<"remote-api" | "local-cli" | "public-demo">("public-demo");
   const [account, setAccount] = useState<HiggsfieldAccount>({ connected: false, message: "Checking Higgsfield…" });
   const [navSection, setNavSection] = useState("studio");
 
@@ -116,6 +116,11 @@ export default function Home() {
       const created = await response.json();
       if (!response.ok) throw new Error(created.error || "Could not start workflow");
       setWorkflowSteps(created.steps);
+      if (created.status === "completed") {
+        setOutputUrl(created.outputUrl);
+        setComplete(true);
+        return;
+      }
       while (true) {
         await wait(900);
         const poll = await fetch(`/api/workflows/${created.id}`, { cache: "no-store" });
@@ -164,7 +169,7 @@ export default function Home() {
           <a className={`nav-item ${navSection === "history" ? "active" : ""}`} href="#history" onClick={(event) => { event.preventDefault(); navigateTo("history"); }} aria-current={navSection === "history" ? "page" : undefined}><span>↻</span> Run history</a>
         </nav>
         <div className="sidebar-bottom">
-          <div className="credit-card"><span className="eyebrow">Higgsfield account</span><strong>{account.connected ? account.credits ?? "—" : runtimeMode === "public-demo" ? "DEMO" : "OFF"}</strong><small>{account.connected ? `${account.plan || "Plan"} · live sync` : account.message}</small><button onClick={() => window.open("https://higgsfield.ai/cli", "_blank")}>{account.connected ? "Refresh account" : "Connect CLI"}</button></div>
+          <div className="credit-card"><span className="eyebrow">Higgsfield account</span><strong>{account.connected ? account.credits ?? "API" : runtimeMode === "public-demo" ? "DEMO" : "OFF"}</strong><small>{account.connected ? account.message || `${account.plan || "Plan"} · live sync` : account.message}</small><button onClick={() => window.open("https://cloud.higgsfield.ai", "_blank")}>{account.connected ? "Open Higgsfield" : "Connect Higgsfield"}</button></div>
           <div className="profile"><span className="avatar">HV</span><span><strong>My workspace</strong><small>Creator plan</small></span><b>•••</b></div>
         </div>
       </aside>
@@ -172,7 +177,7 @@ export default function Home() {
       <main className="main" id="studio">
         <header className="topbar">
           <div><p className="breadcrumb">CREATE / NEW PRODUCTION</p><h1>Product-to-UGC studio</h1></div>
-          <div className="top-actions"><ThemeToggle/><span className={`status-pill ${running ? "live" : ""}`}>{running ? "● Workflow running" : complete ? "✓ Complete" : "Ready to create"}</span><button className="run-button" onClick={() => runWorkflow(false)} disabled={running}><span>{running ? "↻" : "▶"}</span>{running ? "Running…" : runtimeMode === "public-demo" ? "Connect & generate" : "Run workflow"}</button></div>
+          <div className="top-actions"><ThemeToggle/><span className={`status-pill ${running ? "live" : ""}`}>{running ? "● Workflow running" : complete ? "✓ Complete" : "Ready to create"}</span><button className="run-button" onClick={() => runWorkflow(false)} disabled={running}><span>{running ? "↻" : "▶"}</span>{running ? "Generating…" : runtimeMode === "public-demo" ? "Connect & generate" : "Run workflow"}</button></div>
         </header>
 
         <section className="workspace">
@@ -201,7 +206,7 @@ export default function Home() {
           </div>
 
           <aside className="output-column">
-            <article className="panel progress-panel"><p className="eyebrow">PRODUCTION STATUS · {runtimeMode === "public-demo" ? "PUBLIC PREVIEW" : "LIVE CLI"}</p><div className="progress-title"><strong>{progress}%</strong><span>{running ? "In progress" : complete ? "Completed" : error ? "Needs attention" : "Not started"}</span></div><div className="big-progress"><i style={{ width: `${progress}%` }} /></div><div className="current-step"><span className={running ? "pulse" : "dot"}/><div><strong>{currentStep?.label || "Ready for your product"}</strong><small>{currentStep?.message || currentStep?.description || `${completedCount} of ${workflowSteps.length} stages completed`}</small></div></div></article>
+            <article className="panel progress-panel"><p className="eyebrow">PRODUCTION STATUS · {runtimeMode === "public-demo" ? "PUBLIC PREVIEW" : runtimeMode === "remote-api" ? "LIVE HIGGSFIELD API" : "LIVE CLI"}</p><div className="progress-title"><strong>{progress}%</strong><span>{running ? "In progress" : complete ? "Completed" : error ? "Needs attention" : "Not started"}</span></div><div className="big-progress"><i style={{ width: `${progress}%` }} /></div><div className="current-step"><span className={running ? "pulse" : "dot"}/><div><strong>{currentStep?.label || "Ready for your product"}</strong><small>{currentStep?.message || currentStep?.description || `${completedCount} of ${workflowSteps.length} stages completed`}</small></div></div></article>
             <article className="panel video-panel" id="output"><div className="panel-heading"><div><p className="eyebrow">{demoOutput ? "SAMPLE PREVIEW" : "FINAL OUTPUT"}</p><h2>{demoOutput ? "Interface demonstration" : "Your generated video"}</h2></div><span>⛶</span></div>{demoOutput && <p className="demo-disclosure">Sample video only — it is not generated from your uploaded image or prompt.</p>}<div className="video-frame">{complete && outputUrl && !videoError ? <video src={outputUrl} controls playsInline preload="metadata" onError={() => setVideoError(true)} /> : videoError ? <div className="video-empty"><span>!</span><strong>Video could not be loaded</strong><p>The provider URL may have expired. Run the workflow again.</p></div> : <div className="video-empty"><span>▶</span><strong>Your generated video will land here</strong><p>Live output requires a connected Higgsfield production account. Use Preview without credits only to demonstrate the interface.</p></div>}</div>{complete && outputUrl && !videoError && <div className="video-actions"><button onClick={() => document.querySelector("video")?.play()}>▶ Play</button><a href={outputUrl} download={demoOutput ? "voomara-sample-preview.mp4" : "voomara-ugc-output.mp4"}>↓ Download</a></div>}</article>
             <article className="panel history-panel" id="history"><div className="panel-heading"><div><p className="eyebrow">RUN HISTORY</p><h2>Current session</h2></div><span>↻</span></div><div className="history-entry"><span className={complete ? "history-icon complete" : running ? "history-icon running" : "history-icon"}>{complete ? "✓" : running ? "↻" : "•"}</span><div><strong>{complete ? (demoOutput ? "Sample preview completed" : "Generation completed") : running ? "Workflow in progress" : fileName || "No run started"}</strong><small>{complete ? `${workflowSteps.length} of ${workflowSteps.length} stages completed` : running ? `${completedCount} of ${workflowSteps.length} stages completed` : "Upload a product or run the credit-free preview"}</small></div>{complete && outputUrl && <a href="#output" onClick={(event) => { event.preventDefault(); navigateTo("output"); }}>View</a>}</div></article>
           </aside>

@@ -1,6 +1,9 @@
 import { spawn } from "node:child_process";
+import { HiggsfieldClient } from "@higgsfield/client";
+import { createHiggsfieldClient } from "@higgsfield/client/v2";
 
 type GenerationInput = { imagePath: string; prompt: string; generateAudio: boolean };
+type RemoteGenerationInput = { image: Buffer; mimeType: string; prompt: string };
 
 function findVideoUrl(value: unknown): string | undefined {
   if (typeof value === "string" && /^https?:\/\//.test(value) && /\.(mp4|webm)(\?|$)/i.test(value)) return value;
@@ -16,6 +19,39 @@ function findVideoUrl(value: unknown): string | undefined {
       if (found) return found;
     }
   }
+}
+
+function parseCredentials() {
+  const credentials = process.env.HF_CREDENTIALS?.trim();
+  const separator = credentials?.indexOf(":") ?? -1;
+  if (!credentials || separator < 1 || separator === credentials.length - 1) {
+    throw new Error("Higgsfield credentials are missing or invalid. Add HF_CREDENTIALS as KEY_ID:KEY_SECRET.");
+  }
+  return { credentials, apiKey: credentials.slice(0, separator), apiSecret: credentials.slice(separator + 1) };
+}
+
+export async function generateRemoteUgcVideo(input: RemoteGenerationInput): Promise<string> {
+  const { credentials, apiKey, apiSecret } = parseCredentials();
+  const format = input.mimeType === "image/png" ? "png" : input.mimeType === "image/webp" ? "webp" : "jpeg";
+  const uploader = new HiggsfieldClient({ apiKey, apiSecret, timeout: 120_000 });
+  const imageUrl = await uploader.uploadImage(input.image, format);
+  const client = createHiggsfieldClient({ credentials, timeout: 120_000, maxPollTime: 280_000, pollInterval: 3_000 });
+  const creativePrompt = `${input.prompt}. Create a polished vertical creator-style product video. Keep the product, packaging, logo, colors, and label faithful to the supplied reference image. Use natural handheld movement and clear product-focused composition.`;
+  const result = await client.subscribe("/v1/image2video/dop", {
+    input: {
+      model: "dop-turbo",
+      prompt: creativePrompt,
+      input_images: [{ type: "image_url", image_url: imageUrl }],
+      enhance_prompt: true,
+    },
+    withPolling: true,
+  });
+  if (result.status !== "completed") {
+    throw new Error(result.status === "nsfw" ? "Higgsfield rejected the image during safety review." : "Higgsfield video generation failed.");
+  }
+  const url = result.video?.url;
+  if (!url) throw new Error("Higgsfield completed the request but returned no video URL.");
+  return url;
 }
 
 export async function generateUgcVideo(input: GenerationInput): Promise<string> {

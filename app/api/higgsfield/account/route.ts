@@ -15,6 +15,9 @@ const accountSchema = z.object({
 });
 
 export async function GET() {
+  if (getRuntimeMode() === "remote-api") {
+    return NextResponse.json({ connected: true, plan: "API", message: "Secure Higgsfield API connection configured" });
+  }
   if (getRuntimeMode() === "public-demo") {
     return NextResponse.json({ connected: false, message: "Public preview — connect the Higgsfield CLI locally for paid generation." }, { headers: { "Cache-Control": "no-store" } });
   }
