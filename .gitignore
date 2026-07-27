@@ -43,3 +43,6 @@ next-env.d.ts
 /work/
 /data/
 /public/uploads/
+/.superdesign/tmp/
+/.superdesign/
+*.tsbuildinfo
