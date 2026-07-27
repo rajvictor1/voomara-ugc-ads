@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, DragEvent, useEffect, useRef, useState } from "react";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 const steps = [
   { title: "Product input", detail: "Prepare your hero image", icon: "01" },
@@ -11,7 +12,7 @@ const steps = [
   { title: "Ready to review", detail: "Deliver the finished video", icon: "06" },
 ];
 
-const sampleVideo = "https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4";
+const sampleVideo = "/demo-ugc.mp4";
 
 export default function Home() {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -23,6 +24,7 @@ export default function Home() {
   const [running, setRunning] = useState(false);
   const [complete, setComplete] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [videoError, setVideoError] = useState(false);
 
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
 
@@ -32,6 +34,7 @@ export default function Home() {
     setPreview(URL.createObjectURL(file));
     setFileName(file.name);
     setComplete(false);
+    setVideoError(false);
     setActive(-1);
   }
 
@@ -62,6 +65,7 @@ export default function Home() {
     if (running) return;
     setRunning(true);
     setComplete(false);
+    setVideoError(false);
     for (let index = 0; index < steps.length; index += 1) {
       setActive(index);
       await new Promise((resolve) => window.setTimeout(resolve, index === 3 ? 1300 : 720));
@@ -76,7 +80,7 @@ export default function Home() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="brand"><span className="brand-mark">UG</span><span>UGC Flow</span></div>
+        <div className="brand"><span className="brand-mark">VO</span><span>Voomara</span></div>
         <nav aria-label="Primary navigation">
           <a className="nav-item active" href="#studio"><span>✦</span> Create</a>
           <a className="nav-item" href="#workflow"><span>⌘</span> Workflows</a>
@@ -92,7 +96,7 @@ export default function Home() {
       <main className="main" id="studio">
         <header className="topbar">
           <div><p className="breadcrumb">CREATE / NEW PRODUCTION</p><h1>Product-to-UGC studio</h1></div>
-          <div className="top-actions"><span className={`status-pill ${running ? "live" : ""}`}>{running ? "● Workflow running" : complete ? "✓ Complete" : "Ready to create"}</span><button className="run-button" onClick={() => runWorkflow(false)} disabled={running}><span>{running ? "↻" : "▶"}</span>{running ? "Running…" : "Run workflow"}</button></div>
+          <div className="top-actions"><ThemeToggle/><span className={`status-pill ${running ? "live" : ""}`}>{running ? "● Workflow running" : complete ? "✓ Complete" : "Ready to create"}</span><button className="run-button" onClick={() => runWorkflow(false)} disabled={running}><span>{running ? "↻" : "▶"}</span>{running ? "Running…" : "Run workflow"}</button></div>
         </header>
 
         <section className="workspace">
@@ -134,7 +138,7 @@ export default function Home() {
 
           <aside className="output-column">
             <article className="panel progress-panel"><p className="eyebrow">PRODUCTION STATUS</p><div className="progress-title"><strong>{progress}%</strong><span>{running ? "In progress" : complete ? "Completed" : "Not started"}</span></div><div className="big-progress"><i style={{ width: `${progress}%` }} /></div><div className="current-step"><span className={running ? "pulse" : "dot"}/><div><strong>{active < 0 ? "Ready for your product" : complete ? "Video ready to review" : steps[active].title}</strong><small>{active < 0 ? "Add an image and start the workflow" : complete ? "Your production finished successfully" : steps[active].detail}</small></div></div></article>
-            <article className="panel video-panel" id="output"><div className="panel-heading"><div><p className="eyebrow">FINAL OUTPUT</p><h2>Your generated video</h2></div><span>⛶</span></div><div className="video-frame">{complete ? <video src={sampleVideo} controls playsInline /> : <div className="video-empty"><span>▶</span><strong>Your video will land here</strong><p>Upload a product and run the workflow. Watch every production stage update live.</p></div>}</div>{complete && <div className="video-actions"><button onClick={() => document.querySelector("video")?.play()}>▶ Play</button><a href={sampleVideo} target="_blank" rel="noreferrer">↓ Download</a></div>}</article>
+            <article className="panel video-panel" id="output"><div className="panel-heading"><div><p className="eyebrow">FINAL OUTPUT</p><h2>Your generated video</h2></div><span>⛶</span></div><div className="video-frame">{complete && !videoError ? <video src={sampleVideo} controls playsInline preload="metadata" onError={() => setVideoError(true)} /> : videoError ? <div className="video-empty"><span>!</span><strong>Video could not be loaded</strong><p>Refresh the studio and run the preview again.</p></div> : <div className="video-empty"><span>▶</span><strong>Your video will land here</strong><p>Upload a product and run the workflow. Watch every production stage update live.</p></div>}</div>{complete && !videoError && <div className="video-actions"><button onClick={() => document.querySelector("video")?.play()}>▶ Play</button><a href={sampleVideo} download="voomara-demo-output.mp4">↓ Download</a></div>}</article>
           </aside>
         </section>
       </main>
