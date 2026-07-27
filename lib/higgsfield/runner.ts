@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process";
 import { HiggsfieldClient } from "@higgsfield/client";
-import { createHiggsfieldClient } from "@higgsfield/client/v2";
 
 type GenerationInput = { imagePath: string; prompt: string; generateAudio: boolean };
 type RemoteGenerationInput = { image: Buffer; mimeType: string; prompt: string };
@@ -31,25 +30,20 @@ function parseCredentials() {
 }
 
 export async function generateRemoteUgcVideo(input: RemoteGenerationInput): Promise<string> {
-  const { credentials, apiKey, apiSecret } = parseCredentials();
+  const { apiKey, apiSecret } = parseCredentials();
   const format = input.mimeType === "image/png" ? "png" : input.mimeType === "image/webp" ? "webp" : "jpeg";
-  const uploader = new HiggsfieldClient({ apiKey, apiSecret, timeout: 120_000 });
-  const imageUrl = await uploader.uploadImage(input.image, format);
-  const client = createHiggsfieldClient({ credentials, timeout: 120_000, maxPollTime: 280_000, pollInterval: 3_000 });
+  const client = new HiggsfieldClient({ apiKey, apiSecret, timeout: 120_000, maxPollTime: 280_000, pollInterval: 3_000 });
+  const imageUrl = await client.uploadImage(input.image, format);
   const creativePrompt = `${input.prompt}. Create a polished vertical creator-style product video. Keep the product, packaging, logo, colors, and label faithful to the supplied reference image. Use natural handheld movement and clear product-focused composition.`;
-  const result = await client.subscribe("/v1/image2video/dop", {
-    input: {
-      model: "dop-turbo",
-      prompt: creativePrompt,
-      input_images: [{ type: "image_url", image_url: imageUrl }],
-      enhance_prompt: true,
-    },
+  const result = await client.generate("/v1/image2video/dop", {
+    model: "dop-turbo",
+    prompt: creativePrompt,
+    input_images: [{ type: "image_url", image_url: imageUrl }],
+    enhance_prompt: true,
+  }, {
     withPolling: true,
   });
-  if (result.status !== "completed") {
-    throw new Error(result.status === "nsfw" ? "Higgsfield rejected the image during safety review." : "Higgsfield video generation failed.");
-  }
-  const url = result.video?.url;
+  const url = findVideoUrl(result);
   if (!url) throw new Error("Higgsfield completed the request but returned no video URL.");
   return url;
 }
