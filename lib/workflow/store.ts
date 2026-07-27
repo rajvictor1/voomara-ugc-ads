@@ -3,9 +3,9 @@ import path from "node:path";
 import { getRuntimeMode } from "@/lib/runtime";
 import type { WorkflowRun } from "@/types/workflow";
 
-const runsDirectory = getRuntimeMode() === "local-cli"
-  ? path.join(process.cwd(), "data", "runs")
-  : path.join("/tmp", "voomara-runs");
+const runsDirectory = getRuntimeMode() === "public-demo"
+  ? path.join("/tmp", "voomara-runs")
+  : path.join(process.cwd(), "data", "runs");
 
 async function ensureDirectory() {
   await mkdir(runsDirectory, { recursive: true });
