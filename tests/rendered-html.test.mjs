@@ -19,7 +19,9 @@ test("ships the six-stage Higgsfield workflow contract", async () => {
   assert.match(runner, /"--resolution", "720p"/);
   assert.match(dashboard, /<ProductionMap steps=\{workflowSteps\}/);
   assert.match(dashboard, /<video src=\{outputUrl\}/);
-  assert.match(dashboard, /Sample video only — it is not generated from your uploaded image or prompt/);
+  assert.match(dashboard, /Mock preview made locally from your image and prompt — no AI generation or credits used/);
+  assert.match(dashboard, /createProductMockVideo/);
+  assert.match(dashboard, /voomara-product-mock\.webm/);
   assert.match(dashboard, /runtimeMode === "public-demo" && !previewOnly/);
   assert.match(dashboard, /id="history"/);
   for (const section of ["studio", "workflow", "output", "history"]) {

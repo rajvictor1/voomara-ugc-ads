@@ -10,8 +10,104 @@ import Image from "next/image";
 const sampleVideo = "/demo-ugc.mp4";
 const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
+function wrapCanvasText(context: CanvasRenderingContext2D, text: string, maxWidth: number, maxLines: number) {
+  const words = text.trim().split(/\s+/);
+  const lines: string[] = [];
+  let line = "";
+  for (const word of words) {
+    const next = line ? `${line} ${word}` : word;
+    if (context.measureText(next).width <= maxWidth) line = next;
+    else {
+      if (line) lines.push(line);
+      line = word;
+      if (lines.length === maxLines - 1) break;
+    }
+  }
+  if (line && lines.length < maxLines) lines.push(line);
+  if (words.join(" ").length > lines.join(" ").length) lines[lines.length - 1] = `${lines.at(-1)?.replace(/[.…]?$/, "")}…`;
+  return lines;
+}
+
+async function createProductMockVideo(file: File, prompt: string) {
+  if (typeof MediaRecorder === "undefined") throw new Error("This browser cannot create the free mock video. Try Chrome or Edge.");
+  const image = await createImageBitmap(file);
+  const canvas = document.createElement("canvas");
+  canvas.width = 540;
+  canvas.height = 960;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Could not prepare the product preview.");
+  const mimeType = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"].find((type) => MediaRecorder.isTypeSupported(type));
+  if (!mimeType) throw new Error("This browser cannot encode the free mock video. Try Chrome or Edge.");
+  const stream = canvas.captureStream(30);
+  const chunks: BlobPart[] = [];
+  const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 3_500_000 });
+  const duration = 6_000;
+  const startedAt = performance.now();
+
+  return new Promise<string>((resolve, reject) => {
+    recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
+    recorder.onerror = () => reject(new Error("The browser could not record the mock preview."));
+    recorder.onstop = () => {
+      stream.getTracks().forEach((track) => track.stop());
+      image.close();
+      resolve(URL.createObjectURL(new Blob(chunks, { type: mimeType })));
+    };
+    recorder.start(250);
+
+    const render = (now: number) => {
+      const progress = Math.min((now - startedAt) / duration, 1);
+      const pulse = Math.sin(progress * Math.PI);
+      const imageRatio = image.width / image.height;
+      const frameRatio = canvas.width / canvas.height;
+      const backgroundWidth = imageRatio > frameRatio ? canvas.height * imageRatio : canvas.width;
+      const backgroundHeight = imageRatio > frameRatio ? canvas.height : canvas.width / imageRatio;
+      const foregroundScale = 0.78 + pulse * 0.06;
+      const foregroundWidth = imageRatio > frameRatio ? canvas.width * foregroundScale : canvas.height * foregroundScale * imageRatio;
+      const foregroundHeight = imageRatio > frameRatio ? canvas.width * foregroundScale / imageRatio : canvas.height * foregroundScale;
+
+      context.save();
+      context.fillStyle = "#16141a";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.globalAlpha = 0.34;
+      context.filter = "blur(28px) saturate(1.2)";
+      context.drawImage(image, (canvas.width - backgroundWidth) / 2, (canvas.height - backgroundHeight) / 2, backgroundWidth, backgroundHeight);
+      context.restore();
+
+      const verticalLift = Math.sin(progress * Math.PI * 2) * 9;
+      context.save();
+      context.shadowColor = "rgba(0,0,0,.4)";
+      context.shadowBlur = 34;
+      context.drawImage(image, (canvas.width - foregroundWidth) / 2, (canvas.height - foregroundHeight) / 2 - 35 + verticalLift, foregroundWidth, foregroundHeight);
+      context.restore();
+
+      const shade = context.createLinearGradient(0, 500, 0, 960);
+      shade.addColorStop(0, "rgba(15,13,18,0)");
+      shade.addColorStop(0.58, "rgba(15,13,18,.58)");
+      shade.addColorStop(1, "rgba(15,13,18,.96)");
+      context.fillStyle = shade;
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.fillStyle = "#ff755c";
+      context.fillRect(42, 704, 46, 5);
+      context.fillStyle = "rgba(255,255,255,.72)";
+      context.font = "700 15px Arial";
+      context.fillText("VOOMARA · PRODUCT PREVIEW", 42, 745);
+      context.fillStyle = "#ffffff";
+      context.font = "700 28px Arial";
+      wrapCanvasText(context, prompt || "Your product, ready for its story.", 456, 3).forEach((line, index) => context.fillText(line, 42, 790 + index * 38));
+      context.fillStyle = "rgba(255,255,255,.64)";
+      context.font = "600 14px Arial";
+      context.fillText("Mock preview · No AI credits used", 42, 928);
+
+      if (progress < 1) requestAnimationFrame(render);
+      else window.setTimeout(() => recorder.stop(), 120);
+    };
+    requestAnimationFrame(render);
+  });
+}
+
 export default function Home() {
   const inputRef = useRef<HTMLInputElement>(null);
+  const mockVideoUrlRef = useRef<string | undefined>(undefined);
   const [file, setFile] = useState<File>();
   const [preview, setPreview] = useState<string>();
   const [fileName, setFileName] = useState("");
@@ -24,6 +120,7 @@ export default function Home() {
   const [videoError, setVideoError] = useState(false);
   const [outputUrl, setOutputUrl] = useState<string>();
   const [demoOutput, setDemoOutput] = useState(false);
+  const [mockOutput, setMockOutput] = useState(false);
   const [error, setError] = useState("");
   const [improving, setImproving] = useState(false);
   const [runtimeMode, setRuntimeMode] = useState<"local-cli" | "public-demo">("public-demo");
@@ -31,6 +128,7 @@ export default function Home() {
   const [navSection, setNavSection] = useState("studio");
 
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
+  useEffect(() => () => { if (mockVideoUrlRef.current) URL.revokeObjectURL(mockVideoUrlRef.current); }, []);
   useEffect(() => {
     fetch("/api/runtime", { cache: "no-store" }).then((response) => response.json()).then((data) => setRuntimeMode(data.mode)).catch(() => undefined);
     fetch("/api/higgsfield/account", { cache: "no-store" }).then(async (response) => ({ response, body: await response.json() })).then(({ body }) => setAccount(body)).catch(() => setAccount({ connected: false, message: "Higgsfield status unavailable" }));
@@ -47,6 +145,7 @@ export default function Home() {
     setWorkflowSteps(createSteps());
     setOutputUrl(undefined);
     setDemoOutput(false);
+    setMockOutput(false);
     setError("");
   }
 
@@ -69,6 +168,9 @@ export default function Home() {
     setWorkflowSteps(createSteps());
     setOutputUrl(undefined);
     setDemoOutput(false);
+    if (mockVideoUrlRef.current) URL.revokeObjectURL(mockVideoUrlRef.current);
+    mockVideoUrlRef.current = undefined;
+    setMockOutput(false);
     if (inputRef.current) inputRef.current.value = "";
   }
 
@@ -83,6 +185,9 @@ export default function Home() {
     setVideoError(false);
     setOutputUrl(undefined);
     setDemoOutput(false);
+    if (mockVideoUrlRef.current) URL.revokeObjectURL(mockVideoUrlRef.current);
+    mockVideoUrlRef.current = undefined;
+    setMockOutput(false);
     setError("");
 
     if (runtimeMode === "public-demo" && !previewOnly) {
@@ -93,15 +198,24 @@ export default function Home() {
 
     if (previewOnly) {
       const next = createSteps();
+      const mockVideoPromise = file
+        ? createProductMockVideo(file, prompt)
+          .then((url) => ({ url, isMock: true, message: "" }))
+          .catch((cause) => ({ url: sampleVideo, isMock: false, message: cause instanceof Error ? cause.message : "Could not create the product mock." }))
+        : Promise.resolve({ url: sampleVideo, isMock: false, message: "" });
       for (let index = 0; index < next.length; index += 1) {
-        next[index] = { ...next[index], status: "running", progress: 35, message: index === 3 ? "Safe Higgsfield preview — no credits charged" : next[index].description };
+        next[index] = { ...next[index], status: "running", progress: 35, message: index === 3 ? "Creating a local product mock — no AI credits used" : next[index].description };
         setWorkflowSteps([...next]);
         await wait(index === 3 ? 1300 : 620);
         next[index] = { ...next[index], status: "completed", progress: 100 };
         setWorkflowSteps([...next]);
       }
-      setOutputUrl(sampleVideo);
+      const mockResult = await mockVideoPromise;
+      if (mockResult.isMock) mockVideoUrlRef.current = mockResult.url;
+      if (mockResult.message) setError(`${mockResult.message} Showing the sample preview instead.`);
+      setOutputUrl(mockResult.url);
       setDemoOutput(true);
+      setMockOutput(mockResult.isMock);
       setComplete(true);
       setRunning(false);
       return;
@@ -202,8 +316,8 @@ export default function Home() {
 
           <aside className="output-column">
             <article className="panel progress-panel"><p className="eyebrow">PRODUCTION STATUS · {runtimeMode === "public-demo" ? "PUBLIC PREVIEW" : "LIVE CLI"}</p><div className="progress-title"><strong>{progress}%</strong><span>{running ? "In progress" : complete ? "Completed" : error ? "Needs attention" : "Not started"}</span></div><div className="big-progress"><i style={{ width: `${progress}%` }} /></div><div className="current-step"><span className={running ? "pulse" : "dot"}/><div><strong>{currentStep?.label || "Ready for your product"}</strong><small>{currentStep?.message || currentStep?.description || `${completedCount} of ${workflowSteps.length} stages completed`}</small></div></div></article>
-            <article className="panel video-panel" id="output"><div className="panel-heading"><div><p className="eyebrow">{demoOutput ? "SAMPLE PREVIEW" : "FINAL OUTPUT"}</p><h2>{demoOutput ? "Interface demonstration" : "Your generated video"}</h2></div><span>⛶</span></div>{demoOutput && <p className="demo-disclosure">Sample video only — it is not generated from your uploaded image or prompt.</p>}<div className="video-frame">{complete && outputUrl && !videoError ? <video src={outputUrl} controls playsInline preload="metadata" onError={() => setVideoError(true)} /> : videoError ? <div className="video-empty"><span>!</span><strong>Video could not be loaded</strong><p>The provider URL may have expired. Run the workflow again.</p></div> : <div className="video-empty"><span>▶</span><strong>Your generated video will land here</strong><p>Live output requires a connected Higgsfield production account. Use Preview without credits only to demonstrate the interface.</p></div>}</div>{complete && outputUrl && !videoError && <div className="video-actions"><button onClick={() => document.querySelector("video")?.play()}>▶ Play</button><a href={outputUrl} download={demoOutput ? "voomara-sample-preview.mp4" : "voomara-ugc-output.mp4"}>↓ Download</a></div>}</article>
-            <article className="panel history-panel" id="history"><div className="panel-heading"><div><p className="eyebrow">RUN HISTORY</p><h2>Current session</h2></div><span>↻</span></div><div className="history-entry"><span className={complete ? "history-icon complete" : running ? "history-icon running" : "history-icon"}>{complete ? "✓" : running ? "↻" : "•"}</span><div><strong>{complete ? (demoOutput ? "Sample preview completed" : "Generation completed") : running ? "Workflow in progress" : fileName || "No run started"}</strong><small>{complete ? `${workflowSteps.length} of ${workflowSteps.length} stages completed` : running ? `${completedCount} of ${workflowSteps.length} stages completed` : "Upload a product or run the credit-free preview"}</small></div>{complete && outputUrl && <a href="#output" onClick={(event) => { event.preventDefault(); navigateTo("output"); }}>View</a>}</div></article>
+            <article className="panel video-panel" id="output"><div className="panel-heading"><div><p className="eyebrow">{mockOutput ? "PRODUCT MOCK" : demoOutput ? "SAMPLE PREVIEW" : "FINAL OUTPUT"}</p><h2>{mockOutput ? "Your free product preview" : demoOutput ? "Interface demonstration" : "Your generated video"}</h2></div><span>⛶</span></div>{demoOutput && <p className="demo-disclosure">{mockOutput ? "Mock preview made locally from your image and prompt — no AI generation or credits used." : "Sample video only — upload an image to create a product-specific mock preview."}</p>}<div className="video-frame">{complete && outputUrl && !videoError ? <video src={outputUrl} controls playsInline preload="metadata" onError={() => setVideoError(true)} /> : videoError ? <div className="video-empty"><span>!</span><strong>Video could not be loaded</strong><p>The preview could not be encoded. Try Chrome or Edge and run it again.</p></div> : <div className="video-empty"><span>▶</span><strong>Your generated video will land here</strong><p>Upload an image and choose Preview without credits to create a free product mock.</p></div>}</div>{complete && outputUrl && !videoError && <div className="video-actions"><button onClick={() => document.querySelector("video")?.play()}>▶ Play</button><a href={outputUrl} download={mockOutput ? "voomara-product-mock.webm" : demoOutput ? "voomara-sample-preview.mp4" : "voomara-ugc-output.mp4"}>↓ Download</a></div>}</article>
+            <article className="panel history-panel" id="history"><div className="panel-heading"><div><p className="eyebrow">RUN HISTORY</p><h2>Current session</h2></div><span>↻</span></div><div className="history-entry"><span className={complete ? "history-icon complete" : running ? "history-icon running" : "history-icon"}>{complete ? "✓" : running ? "↻" : "•"}</span><div><strong>{complete ? (mockOutput ? "Product mock completed" : demoOutput ? "Sample preview completed" : "Generation completed") : running ? "Workflow in progress" : fileName || "No run started"}</strong><small>{complete ? `${workflowSteps.length} of ${workflowSteps.length} stages completed` : running ? `${completedCount} of ${workflowSteps.length} stages completed` : "Upload a product or run the credit-free preview"}</small></div>{complete && outputUrl && <a href="#output" onClick={(event) => { event.preventDefault(); navigateTo("output"); }}>View</a>}</div></article>
           </aside>
         </section>
       </main>
