@@ -1,18 +1,19 @@
 "use client";
 
-import { Background, Controls, Handle, Position, ReactFlow, type NodeProps } from "@xyflow/react";
+import { Background, Controls, Handle, Position, ReactFlow, type Node, type NodeProps } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type { WorkflowStep } from "@/types/workflow";
 
-type MapNode = { id: string; position: { x: number; y: number }; data: WorkflowStep; type: "production" };
+type MapNode = Node<{ step: WorkflowStep }, "production">;
 
 function ProductionNode({ data }: NodeProps<MapNode>) {
+  const step = data.step;
   return (
-    <div className={`flow-node ${data.status === "completed" ? "done" : data.status}`}>
+    <div className={`flow-node ${step.status === "completed" ? "done" : step.status}`}>
       <Handle type="target" position={Position.Left} />
-      <div className="node-top"><span className="node-number">{data.status === "completed" ? "✓" : data.id === "generate" ? "HF" : "•"}</span><span className="node-state">{data.status}</span></div>
-      <strong>{data.label}</strong><small>{data.message || data.description}</small>
-      <div className="node-progress"><i style={{ width: `${data.progress}%` }} /></div>
+      <div className="node-top"><span className="node-number">{step.status === "completed" ? "✓" : step.id === "generate" ? "HF" : "•"}</span><span className="node-state">{step.status}</span></div>
+      <strong>{step.label}</strong><small>{step.message || step.description}</small>
+      <div className="node-progress"><i style={{ width: `${step.progress}%` }} /></div>
       <Handle type="source" position={Position.Right} />
     </div>
   );
@@ -24,7 +25,7 @@ const positions = [
 ];
 
 export function ProductionMap({ steps }: { steps: WorkflowStep[] }) {
-  const nodes: MapNode[] = steps.map((step, index) => ({ id: step.id, type: "production", position: positions[index], data: step }));
+  const nodes: MapNode[] = steps.map((step, index) => ({ id: step.id, type: "production", position: positions[index], data: { step } }));
   const edges = steps.slice(0, -1).map((step, index) => ({
     id: `${step.id}-${steps[index + 1].id}`,
     source: step.id,
