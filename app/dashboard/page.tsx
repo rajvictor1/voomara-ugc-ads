@@ -2,6 +2,7 @@
 
 import { ChangeEvent, DragEvent, useEffect, useRef, useState } from "react";
 import { ThemeToggle } from "@/components/theme-toggle";
+import Image from "next/image";
 
 const steps = [
   { title: "Product input", detail: "Prepare your hero image", icon: "01" },
@@ -106,7 +107,7 @@ export default function Home() {
                 <div className="panel-heading"><div><p className="eyebrow">01 · PRODUCT</p><h2>Drop your hero image</h2></div><span className="panel-icon">▧</span></div>
                 <input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={onFileChange} hidden />
                 <div className={`dropzone ${dragging ? "dragging" : ""} ${preview ? "has-image" : ""}`} onDragOver={(e) => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={onDrop}>
-                  {preview ? <><img src={preview} alt="Selected product" /><div className="file-chip"><span>✓ {fileName}</span><button onClick={() => inputRef.current?.click()}>Replace</button><button aria-label="Remove image" onClick={removeImage}>×</button></div></> : <button className="upload-trigger" onClick={() => inputRef.current?.click()}><span className="upload-icon">↑</span><strong>Choose or drop product image</strong><small>JPG, PNG or WebP · up to 12 MB</small></button>}
+                  {preview ? <><Image src={preview} alt="Selected product" fill unoptimized sizes="(max-width: 760px) 100vw, 300px"/><div className="file-chip"><span>✓ {fileName}</span><button onClick={() => inputRef.current?.click()}>Replace</button><button aria-label="Remove image" onClick={removeImage}>×</button></div></> : <button className="upload-trigger" onClick={() => inputRef.current?.click()}><span className="upload-icon">↑</span><strong>Choose or drop product image</strong><small>JPG, PNG or WebP · up to 12 MB</small></button>}
                 </div>
               </article>
 
