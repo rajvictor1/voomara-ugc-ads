@@ -19,6 +19,8 @@ test("ships the six-stage Higgsfield workflow contract", async () => {
   assert.match(runner, /"--resolution", "720p"/);
   assert.match(dashboard, /<ProductionMap steps=\{workflowSteps\}/);
   assert.match(dashboard, /<video src=\{outputUrl\}/);
+  assert.match(dashboard, /Sample video only — it is not generated from your uploaded image or prompt/);
+  assert.match(dashboard, /runtimeMode === "public-demo" && !previewOnly/);
 });
 
 test("keeps credentials and uploaded products behind server boundaries", async () => {

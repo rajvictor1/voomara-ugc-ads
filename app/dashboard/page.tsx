@@ -23,6 +23,7 @@ export default function Home() {
   const [dragging, setDragging] = useState(false);
   const [videoError, setVideoError] = useState(false);
   const [outputUrl, setOutputUrl] = useState<string>();
+  const [demoOutput, setDemoOutput] = useState(false);
   const [error, setError] = useState("");
   const [improving, setImproving] = useState(false);
   const [runtimeMode, setRuntimeMode] = useState<"local-cli" | "public-demo">("public-demo");
@@ -44,6 +45,7 @@ export default function Home() {
     setVideoError(false);
     setWorkflowSteps(createSteps());
     setOutputUrl(undefined);
+    setDemoOutput(false);
     setError("");
   }
 
@@ -65,6 +67,7 @@ export default function Home() {
     setComplete(false);
     setWorkflowSteps(createSteps());
     setOutputUrl(undefined);
+    setDemoOutput(false);
     if (inputRef.current) inputRef.current.value = "";
   }
 
@@ -78,9 +81,16 @@ export default function Home() {
     setComplete(false);
     setVideoError(false);
     setOutputUrl(undefined);
+    setDemoOutput(false);
     setError("");
 
-    if (runtimeMode === "public-demo" || previewOnly) {
+    if (runtimeMode === "public-demo" && !previewOnly) {
+      setError("Live Higgsfield generation is not connected on this deployment. Use Preview without credits for the sample experience, or connect Higgsfield production credentials to generate from this product image.");
+      setRunning(false);
+      return;
+    }
+
+    if (previewOnly) {
       const next = createSteps();
       for (let index = 0; index < next.length; index += 1) {
         next[index] = { ...next[index], status: "running", progress: 35, message: index === 3 ? "Safe Higgsfield preview — no credits charged" : next[index].description };
@@ -90,6 +100,7 @@ export default function Home() {
         setWorkflowSteps([...next]);
       }
       setOutputUrl(sampleVideo);
+      setDemoOutput(true);
       setComplete(true);
       setRunning(false);
       return;
@@ -155,7 +166,7 @@ export default function Home() {
       <main className="main" id="studio">
         <header className="topbar">
           <div><p className="breadcrumb">CREATE / NEW PRODUCTION</p><h1>Product-to-UGC studio</h1></div>
-          <div className="top-actions"><ThemeToggle/><span className={`status-pill ${running ? "live" : ""}`}>{running ? "● Workflow running" : complete ? "✓ Complete" : "Ready to create"}</span><button className="run-button" onClick={() => runWorkflow(false)} disabled={running}><span>{running ? "↻" : "▶"}</span>{running ? "Running…" : "Run workflow"}</button></div>
+          <div className="top-actions"><ThemeToggle/><span className={`status-pill ${running ? "live" : ""}`}>{running ? "● Workflow running" : complete ? "✓ Complete" : "Ready to create"}</span><button className="run-button" onClick={() => runWorkflow(false)} disabled={running}><span>{running ? "↻" : "▶"}</span>{running ? "Running…" : runtimeMode === "public-demo" ? "Connect & generate" : "Run workflow"}</button></div>
         </header>
 
         <section className="workspace">
@@ -185,7 +196,7 @@ export default function Home() {
 
           <aside className="output-column">
             <article className="panel progress-panel"><p className="eyebrow">PRODUCTION STATUS · {runtimeMode === "public-demo" ? "PUBLIC PREVIEW" : "LIVE CLI"}</p><div className="progress-title"><strong>{progress}%</strong><span>{running ? "In progress" : complete ? "Completed" : error ? "Needs attention" : "Not started"}</span></div><div className="big-progress"><i style={{ width: `${progress}%` }} /></div><div className="current-step"><span className={running ? "pulse" : "dot"}/><div><strong>{currentStep?.label || "Ready for your product"}</strong><small>{currentStep?.message || currentStep?.description || `${completedCount} of ${workflowSteps.length} stages completed`}</small></div></div></article>
-            <article className="panel video-panel" id="output"><div className="panel-heading"><div><p className="eyebrow">FINAL OUTPUT</p><h2>Your generated video</h2></div><span>⛶</span></div><div className="video-frame">{complete && outputUrl && !videoError ? <video src={outputUrl} controls playsInline preload="metadata" onError={() => setVideoError(true)} /> : videoError ? <div className="video-empty"><span>!</span><strong>Video could not be loaded</strong><p>The provider URL may have expired. Run the workflow again.</p></div> : <div className="video-empty"><span>▶</span><strong>Your video will land here</strong><p>Upload a product and run the workflow. Watch every production stage update live.</p></div>}</div>{complete && outputUrl && !videoError && <div className="video-actions"><button onClick={() => document.querySelector("video")?.play()}>▶ Play</button><a href={outputUrl} download="voomara-ugc-output.mp4">↓ Download</a></div>}</article>
+            <article className="panel video-panel" id="output"><div className="panel-heading"><div><p className="eyebrow">{demoOutput ? "SAMPLE PREVIEW" : "FINAL OUTPUT"}</p><h2>{demoOutput ? "Interface demonstration" : "Your generated video"}</h2></div><span>⛶</span></div>{demoOutput && <p className="demo-disclosure">Sample video only — it is not generated from your uploaded image or prompt.</p>}<div className="video-frame">{complete && outputUrl && !videoError ? <video src={outputUrl} controls playsInline preload="metadata" onError={() => setVideoError(true)} /> : videoError ? <div className="video-empty"><span>!</span><strong>Video could not be loaded</strong><p>The provider URL may have expired. Run the workflow again.</p></div> : <div className="video-empty"><span>▶</span><strong>Your generated video will land here</strong><p>Live output requires a connected Higgsfield production account. Use Preview without credits only to demonstrate the interface.</p></div>}</div>{complete && outputUrl && !videoError && <div className="video-actions"><button onClick={() => document.querySelector("video")?.play()}>▶ Play</button><a href={outputUrl} download={demoOutput ? "voomara-sample-preview.mp4" : "voomara-ugc-output.mp4"}>↓ Download</a></div>}</article>
           </aside>
         </section>
       </main>
