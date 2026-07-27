@@ -2,41 +2,49 @@
 
 import { ChangeEvent, DragEvent, useEffect, useRef, useState } from "react";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { ProductionMap } from "@/components/workflow/production-map";
+import { createSteps } from "@/lib/workflow/definition";
+import type { HiggsfieldAccount, WorkflowRun, WorkflowStep } from "@/types/workflow";
 import Image from "next/image";
 
-const steps = [
-  { title: "Product input", detail: "Prepare your hero image", icon: "01" },
-  { title: "Visual analysis", detail: "Read packaging and details", icon: "02" },
-  { title: "Creative direction", detail: "Build the UGC concept", icon: "03" },
-  { title: "AI video studio", detail: "Generate a vertical ad", icon: "04" },
-  { title: "Render output", detail: "Finalise motion and audio", icon: "05" },
-  { title: "Ready to review", detail: "Deliver the finished video", icon: "06" },
-];
-
 const sampleVideo = "/demo-ugc.mp4";
+const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
 export default function Home() {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [file, setFile] = useState<File>();
   const [preview, setPreview] = useState<string>();
   const [fileName, setFileName] = useState("");
   const [prompt, setPrompt] = useState("A creator discovers this product, demonstrates its most useful benefit, and gives an honest, energetic recommendation.");
   const [audio, setAudio] = useState(true);
-  const [active, setActive] = useState(-1);
+  const [workflowSteps, setWorkflowSteps] = useState<WorkflowStep[]>(createSteps());
   const [running, setRunning] = useState(false);
   const [complete, setComplete] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [videoError, setVideoError] = useState(false);
+  const [outputUrl, setOutputUrl] = useState<string>();
+  const [error, setError] = useState("");
+  const [improving, setImproving] = useState(false);
+  const [runtimeMode, setRuntimeMode] = useState<"local-cli" | "public-demo">("public-demo");
+  const [account, setAccount] = useState<HiggsfieldAccount>({ connected: false, message: "Checking Higgsfield…" });
 
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
+  useEffect(() => {
+    fetch("/api/runtime", { cache: "no-store" }).then((response) => response.json()).then((data) => setRuntimeMode(data.mode)).catch(() => undefined);
+    fetch("/api/higgsfield/account", { cache: "no-store" }).then(async (response) => ({ response, body: await response.json() })).then(({ body }) => setAccount(body)).catch(() => setAccount({ connected: false, message: "Higgsfield status unavailable" }));
+  }, []);
 
   function acceptFile(file?: File) {
     if (!file || !file.type.startsWith("image/")) return;
     if (preview) URL.revokeObjectURL(preview);
+    setFile(file);
     setPreview(URL.createObjectURL(file));
     setFileName(file.name);
     setComplete(false);
     setVideoError(false);
-    setActive(-1);
+    setWorkflowSteps(createSteps());
+    setOutputUrl(undefined);
+    setError("");
   }
 
   function onFileChange(event: ChangeEvent<HTMLInputElement>) {
@@ -52,14 +60,16 @@ export default function Home() {
   function removeImage() {
     if (preview) URL.revokeObjectURL(preview);
     setPreview(undefined);
+    setFile(undefined);
     setFileName("");
     setComplete(false);
-    setActive(-1);
+    setWorkflowSteps(createSteps());
+    setOutputUrl(undefined);
     if (inputRef.current) inputRef.current.value = "";
   }
 
-  async function runWorkflow(demo = false) {
-    if (!preview && !demo) {
+  async function runWorkflow(previewOnly = false) {
+    if (!file && !previewOnly) {
       inputRef.current?.click();
       return;
     }
@@ -67,16 +77,64 @@ export default function Home() {
     setRunning(true);
     setComplete(false);
     setVideoError(false);
-    for (let index = 0; index < steps.length; index += 1) {
-      setActive(index);
-      await new Promise((resolve) => window.setTimeout(resolve, index === 3 ? 1300 : 720));
+    setOutputUrl(undefined);
+    setError("");
+
+    if (runtimeMode === "public-demo" || previewOnly) {
+      const next = createSteps();
+      for (let index = 0; index < next.length; index += 1) {
+        next[index] = { ...next[index], status: "running", progress: 35, message: index === 3 ? "Safe Higgsfield preview — no credits charged" : next[index].description };
+        setWorkflowSteps([...next]);
+        await wait(index === 3 ? 1300 : 620);
+        next[index] = { ...next[index], status: "completed", progress: 100 };
+        setWorkflowSteps([...next]);
+      }
+      setOutputUrl(sampleVideo);
+      setComplete(true);
+      setRunning(false);
+      return;
     }
-    setComplete(true);
-    setRunning(false);
+
+    try {
+      const form = new FormData();
+      if (file) form.set("image", file);
+      form.set("prompt", prompt);
+      form.set("generateAudio", String(audio));
+      const response = await fetch("/api/workflows", { method: "POST", body: form });
+      const created = await response.json();
+      if (!response.ok) throw new Error(created.error || "Could not start workflow");
+      setWorkflowSteps(created.steps);
+      while (true) {
+        await wait(900);
+        const poll = await fetch(`/api/workflows/${created.id}`, { cache: "no-store" });
+        const run = await poll.json() as WorkflowRun;
+        if (!poll.ok) throw new Error("Could not read workflow status");
+        setWorkflowSteps(run.steps);
+        if (run.status === "completed") { setOutputUrl(run.outputUrl); setComplete(true); break; }
+        if (run.status === "failed") throw new Error(run.error || "Higgsfield generation failed");
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Workflow failed");
+    } finally {
+      setRunning(false);
+    }
   }
 
-  const finishedCount = complete ? steps.length : Math.max(active, 0);
-  const progress = complete ? 100 : active < 0 ? 0 : Math.round(((active + .35) / steps.length) * 100);
+  async function improvePrompt() {
+    setImproving(true); setError("");
+    try {
+      const response = await fetch("/api/prompt/improve", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt }) });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error);
+      setPrompt(body.prompt);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Prompt improvement failed"); }
+    finally { setImproving(false); }
+  }
+
+  const active = workflowSteps.findIndex((step) => step.status === "running" || step.status === "failed");
+  const completedCount = workflowSteps.filter((step) => step.status === "completed").length;
+  const progress = Math.round(workflowSteps.reduce((total, step) => total + step.progress, 0) / workflowSteps.length);
+  const currentStep = active >= 0 ? workflowSteps[active] : complete ? workflowSteps.at(-1) : undefined;
 
   return (
     <div className="app-shell">
@@ -89,7 +147,7 @@ export default function Home() {
           <a className="nav-item" href="#history"><span>↻</span> Run history</a>
         </nav>
         <div className="sidebar-bottom">
-          <div className="credit-card"><span className="eyebrow">Studio credits</span><strong>2,450</strong><small>Ready for 16 productions</small><button>Manage plan</button></div>
+          <div className="credit-card"><span className="eyebrow">Higgsfield account</span><strong>{account.connected ? account.credits ?? "—" : runtimeMode === "public-demo" ? "DEMO" : "OFF"}</strong><small>{account.connected ? `${account.plan || "Plan"} · live sync` : account.message}</small><button onClick={() => window.open("https://higgsfield.ai/cli", "_blank")}>{account.connected ? "Refresh account" : "Connect CLI"}</button></div>
           <div className="profile"><span className="avatar">HV</span><span><strong>My workspace</strong><small>Creator plan</small></span><b>•••</b></div>
         </div>
       </aside>
@@ -112,34 +170,22 @@ export default function Home() {
               </article>
 
               <article className="panel direction-panel">
-                <div className="panel-heading"><div><p className="eyebrow">02 · DIRECTION</p><h2>Tell the creator what matters</h2></div><button className="soft-button" onClick={() => setPrompt("Open with a scroll-stopping product reveal, demonstrate the clearest everyday benefit, then close with a warm and credible recommendation.")}>✦ Improve prompt</button></div>
+                <div className="panel-heading"><div><p className="eyebrow">02 · DIRECTION</p><h2>Tell the creator what matters</h2></div><button className="soft-button" onClick={improvePrompt} disabled={improving}>✦ {improving ? "Improving…" : "Improve prompt"}</button></div>
                 <textarea aria-label="Creative direction" value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+                {error && <p className="workflow-error" role="alert">{error}</p>}
                 <div className="direction-footer"><button className="preview-button" onClick={() => runWorkflow(true)} disabled={running}>Preview without credits</button><span>9:16 · 15 SEC</span><label className="toggle-row"><input type="checkbox" checked={audio} onChange={(e) => setAudio(e.target.checked)} /><span className="toggle"/><b>Audio {audio ? "on" : "off"}</b></label></div>
               </article>
             </div>
 
             <article className="canvas" id="workflow">
               <div className="canvas-head"><div><p>LIVE PRODUCTION MAP</p><h2>Every node reflects real execution</h2></div><span>{running ? "Running" : complete ? "Completed" : "Ready"}</span></div>
-              <div className="canvas-grid" aria-label="Visual workflow">
-                {steps.map((step, index) => {
-                  const state = complete || index < active ? "done" : index === active ? "running" : "pending";
-                  return <div className="node-wrap" key={step.title}>
-                    <div className={`flow-node ${state}`}>
-                      <div className="node-top"><span className="node-number">{state === "done" ? "✓" : step.icon}</span><span className="node-state">{state}</span></div>
-                      <strong>{step.title}</strong><small>{step.detail}</small>
-                      <div className="node-progress"><i /></div>
-                    </div>
-                    {index < steps.length - 1 && <div className={`connector ${index < finishedCount ? "done" : index === active ? "running" : ""}`}><i /></div>}
-                  </div>;
-                })}
-              </div>
-              <div className="canvas-controls"><button aria-label="Zoom in">+</button><button aria-label="Zoom out">−</button><button aria-label="Fit workflow">⌗</button></div>
+              <div className="react-flow-canvas" aria-label="Interactive visual workflow"><ProductionMap steps={workflowSteps}/></div>
             </article>
           </div>
 
           <aside className="output-column">
-            <article className="panel progress-panel"><p className="eyebrow">PRODUCTION STATUS</p><div className="progress-title"><strong>{progress}%</strong><span>{running ? "In progress" : complete ? "Completed" : "Not started"}</span></div><div className="big-progress"><i style={{ width: `${progress}%` }} /></div><div className="current-step"><span className={running ? "pulse" : "dot"}/><div><strong>{active < 0 ? "Ready for your product" : complete ? "Video ready to review" : steps[active].title}</strong><small>{active < 0 ? "Add an image and start the workflow" : complete ? "Your production finished successfully" : steps[active].detail}</small></div></div></article>
-            <article className="panel video-panel" id="output"><div className="panel-heading"><div><p className="eyebrow">FINAL OUTPUT</p><h2>Your generated video</h2></div><span>⛶</span></div><div className="video-frame">{complete && !videoError ? <video src={sampleVideo} controls playsInline preload="metadata" onError={() => setVideoError(true)} /> : videoError ? <div className="video-empty"><span>!</span><strong>Video could not be loaded</strong><p>Refresh the studio and run the preview again.</p></div> : <div className="video-empty"><span>▶</span><strong>Your video will land here</strong><p>Upload a product and run the workflow. Watch every production stage update live.</p></div>}</div>{complete && !videoError && <div className="video-actions"><button onClick={() => document.querySelector("video")?.play()}>▶ Play</button><a href={sampleVideo} download="voomara-demo-output.mp4">↓ Download</a></div>}</article>
+            <article className="panel progress-panel"><p className="eyebrow">PRODUCTION STATUS · {runtimeMode === "public-demo" ? "PUBLIC PREVIEW" : "LIVE CLI"}</p><div className="progress-title"><strong>{progress}%</strong><span>{running ? "In progress" : complete ? "Completed" : error ? "Needs attention" : "Not started"}</span></div><div className="big-progress"><i style={{ width: `${progress}%` }} /></div><div className="current-step"><span className={running ? "pulse" : "dot"}/><div><strong>{currentStep?.label || "Ready for your product"}</strong><small>{currentStep?.message || currentStep?.description || `${completedCount} of ${workflowSteps.length} stages completed`}</small></div></div></article>
+            <article className="panel video-panel" id="output"><div className="panel-heading"><div><p className="eyebrow">FINAL OUTPUT</p><h2>Your generated video</h2></div><span>⛶</span></div><div className="video-frame">{complete && outputUrl && !videoError ? <video src={outputUrl} controls playsInline preload="metadata" onError={() => setVideoError(true)} /> : videoError ? <div className="video-empty"><span>!</span><strong>Video could not be loaded</strong><p>The provider URL may have expired. Run the workflow again.</p></div> : <div className="video-empty"><span>▶</span><strong>Your video will land here</strong><p>Upload a product and run the workflow. Watch every production stage update live.</p></div>}</div>{complete && outputUrl && !videoError && <div className="video-actions"><button onClick={() => document.querySelector("video")?.play()}>▶ Play</button><a href={outputUrl} download="voomara-ugc-output.mp4">↓ Download</a></div>}</article>
           </aside>
         </section>
       </main>
