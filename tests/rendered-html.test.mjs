@@ -28,6 +28,7 @@ test("keeps credentials and uploaded products behind server boundaries", async (
     read(".gitignore"),
   ]);
   assert.match(promptRoute, /process\.env\.OPENAI_API_KEY/);
+  assert.match(promptRoute, /getRuntimeMode\(\) === "public-demo"/);
   assert.match(promptRoute, /store: false/);
   assert.match(workflowRoute, /12 \* 1024 \* 1024/);
   assert.match(workflowRoute, /"data", "uploads"/);

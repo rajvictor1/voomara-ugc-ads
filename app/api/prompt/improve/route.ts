@@ -1,17 +1,23 @@
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { getRuntimeMode } from "@/lib/runtime";
 
 export const runtime = "nodejs";
 
 const inputSchema = z.object({ prompt: z.string().trim().min(12).max(1200) });
 
 export async function POST(request: Request) {
-  if (!process.env.OPENAI_API_KEY) {
-    return NextResponse.json({ error: "Add OPENAI_API_KEY to enable AI prompt improvement." }, { status: 503 });
-  }
   const parsed = inputSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Write a little more creative direction first." }, { status: 400 });
+
+  if (!process.env.OPENAI_API_KEY) {
+    if (getRuntimeMode() === "public-demo") {
+      const improved = `Open with a scroll-stopping product reveal in the first two seconds. ${parsed.data.prompt} Show the product naturally in use with close-up detail shots, warm handheld creator energy, and an honest conversational delivery. Finish with a clear, confident recommendation and simple call to action without inventing any product claims.`;
+      return NextResponse.json({ prompt: improved, demo: true });
+    }
+    return NextResponse.json({ error: "OpenAI prompt improvement is not configured. Add OPENAI_API_KEY to .env.local and restart the studio." }, { status: 503 });
+  }
 
   try {
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, baseURL: "https://api.openai.com/v1" });
